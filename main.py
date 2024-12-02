@@ -2,21 +2,26 @@ import cv2
 import mss
 import numpy as np
 from flask import Flask, Response
+from ultralytics import YOLO
 
 app = Flask(__name__)
+model = YOLO('yolov8n.pt')
 
 def gen_frames():
     with mss.mss() as sct:
-        monitor = sct.monitors[1]  # Change index if you have multiple monitors
+        monitor = sct.monitors[2]  # Change index if you have multiple monitors
         while True:
             img = np.array(sct.grab(monitor))
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-            # Optionally resize the image to reduce bandwidth
-            # img = cv2.resize(img, (800, 600))
+            # Apply object detection on the frame
+            results = model.predict(img, verbose = False)
+
+            # Get the annotated frame from the results
+            annotated_frame = results[0].plot()
 
             # Encode the frame in JPEG format
-            ret, buffer = cv2.imencode('.jpg', img)
+            ret, buffer = cv2.imencode('.jpg', annotated_frame)
             frame = buffer.tobytes()
 
             # Yield the output frame in byte format
