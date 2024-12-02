@@ -5,37 +5,197 @@ import shutil
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from ..sam2.build_sam import build_sam2_video_predictor
+from PIL import Image
+from sam2.build_sam import build_sam2_video_predictor
+import matplotlib
+matplotlib.use('TkAgg')  # Ensure GUI backend
 
-sam2_checkpoint = "../checkpoints/sam2.1_hiera_large.pt"
-model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+sam2_checkpoint = "../../sam2/sam2.1_hiera_small.pt"
+model_cfg = "../../sam2/sam2.1_hiera_s.yaml"
+predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=torch.device("cpu"))
 
-def extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8):
+def show_mask(mask, ax, obj_id=None, random_color=False):
+    if random_color:
+        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    else:
+        cmap = plt.get_cmap("tab10")
+        cmap_idx = 0 if obj_id is None else obj_id
+        color = np.array([*cmap(cmap_idx)[:3], 0.6])
+    h, w = mask.shape[-2:]
+    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+    ax.imshow(mask_image)
+
+
+def show_points(coords, labels, ax, marker_size=200):
+    pos_points = coords[labels==1]
+    neg_points = coords[labels==0]
+    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+
+
+def show_box(box, ax):
+    x0, y0 = box[0], box[1]
+    w, h = box[2] - box[0], box[3] - box[1]
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
+
+def annotation(frames_dir, output_dir):
     """
-    Extract frames from a video file, automatically annotate them, and split into training and validation sets.
+    Annotate the first two frames in a directory of images and generate bounding boxes.
+
+    Parameters:
+    - frames_dir: Directory containing image frames named from '1.jpg' to 'n.jpg'.
+    - output_dir: Directory where the annotated images and labels will be saved.
+    """
+
+    # Ensure output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Scan all JPEG frame names in the directory
+    frame_names = [
+        p for p in os.listdir(frames_dir)
+        if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
+    ]
+    # Sort frame names based on their numerical value
+    frame_names.sort(key=lambda x: int(os.path.splitext(x)[0]))
+
+    # Only process the first two frames
+    num_frames = min(2, len(frame_names))
+    frames_to_process = frame_names[:num_frames]
+    
+    bounding_boxes = {}  # To store bounding boxes for each frame
+    inference_state = predictor.init_state(frames_dir)
+    for idx, frame_name in enumerate(frames_to_process):
+
+        frame_path = os.path.join(frames_dir, frame_name)
+        img = cv2.imread(frame_path)
+        img_height, img_width = img.shape[:2]
+        clone = img.copy()
+        points = []
+
+        def click_event(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                points.append((x, y))
+                cv2.circle(img, (x, y), 5, (0, 255, 0), -1)
+                cv2.imshow("Image", img)
+
+        cv2.namedWindow("Image")
+        cv2.setMouseCallback("Image", click_event)
+        cv2.imshow("Image", img)
+        print(f"Please click on the object in Frame {frame_name}. Press 'q' when done.")
+        while True:
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+        cv2.destroyAllWindows()
+
+        if len(points) == 0:
+            print(f"No points were clicked for Frame {frame_name}. Skipping.")
+            continue
+
+        frame_path = os.path.join(frames_dir, frame_name)
+        img = Image.open(frame_path)
+        img_width, img_height = img.size
+
+        # Show the frame and ask user to click points
+        plt.figure(figsize=(9, 6))
+        plt.title(f"Frame {frame_name}")
+        plt.imshow(img)
+        print(f"Please click on the object in Frame {frame_name}. Close the window when done.")
+        # Collect user clicks
+        points = plt.ginput(n=1, timeout=0)
+        plt.close()
+        
+        if len(points) == 0:
+            print(f"No points were clicked for Frame {idx}. Skipping.")
+            continue
+        
+        # Convert points to numpy array
+        points = np.array(points, dtype=np.float32)
+        labels = np.ones(len(points), dtype=np.int32)
+        
+        # Process the image with predictor
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=idx,
+            obj_id=1,
+            points=points,
+            labels=labels,
+        )
+        
+        # Extract the mask
+        mask = (out_mask_logits[0] > 0.0).cpu().numpy()
+                # show the results on the current (interacted) frame
+        plt.figure(figsize=(9, 6))
+        plt.title(f"frame {idx}")
+        plt.imshow(img)
+        show_points(points, labels, plt.gca())
+        show_mask(mask, plt.gca(), obj_id=out_obj_ids[0])
+        
+    
+    # Generate the bounding box from the mask
+    ys, xs = np.where(mask)
+    if ys.size > 0 and xs.size > 0:
+        x_min = xs.min()
+        x_max = xs.max()
+        y_min = ys.min()
+        y_max = ys.max()
+        bounding_box = [x_min, y_min, x_max, y_max]
+        bounding_boxes[f"frame_{idx}"] = bounding_box
+        
+        # Normalize bounding box coordinates for YOLO format
+        x_center = (x_min + x_max) / 2.0 / img_width
+        y_center = (y_min + y_max) / 2.0 / img_height
+        width = (x_max - x_min) / img_width
+        height = (y_max - y_min) / img_height
+        
+        # Class id for YOLO (assuming 0)
+        class_id = 0
+        yolo_bbox = [class_id, x_center, y_center, width, height]
+        
+        # Save the image
+        image_filename = os.path.join(output_dir, f"frame_{idx}.jpg")
+        img.save(image_filename)
+        
+        # Save the label file
+        label_filename = os.path.join(output_dir, f"frame_{idx}.txt")
+        with open(label_filename, 'w') as f:
+            f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
+        
+        # Optionally, display the image with bounding box drawn
+        plt.figure(figsize=(9,6))
+        plt.title(f"Frame {idx} with Bounding Box")
+        plt.imshow(img)
+        ax = plt.gca()
+        rect = plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+                                edgecolor='red', facecolor='none', linewidth=2)
+        ax.add_patch(rect)
+        plt.show()
+        
+    else:
+        print(f"No mask detected for Frame {idx}.")
+        bounding_boxes[f"frame_{idx}"] = None  # No mask detected
+        
+    # Output images and bounding box positions
+    return bounding_boxes
+
+def extract_video_frames(video_path, output_img_dir, frame_interval=1):
+    """
+    Extract frames from a video file and save them as images.
 
     Parameters:
     - video_path: Path to the input video file.
-    - output_dir: Base directory where images and labels will be saved.
+    - output_img_dir: Directory where extracted frames will be saved.
     - frame_interval: Number of frames to skip between saves (default 1 saves every frame).
-    - train_split: Proportion of images to include in the training set.
     """
 
-    # Create directory structure
-    images_dir = os.path.join(output_dir, 'images')
-    labels_dir = os.path.join(output_dir, 'labels')
+    # Ensure the output directory exists
+    os.makedirs(output_img_dir, exist_ok=True)
 
-    for split in ['train', 'val']:
-        os.makedirs(os.path.join(images_dir, split), exist_ok=True)
-        os.makedirs(os.path.join(labels_dir, split), exist_ok=True)
-
-    # Initialize video capture and background subtractor
+    # Initialize video capture
     vidcap = cv2.VideoCapture(video_path)
-    backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
-    
     frame_count = 0
-    saved_frames = []
+    saved_frame_count = 0
     success = True
 
     while success:
@@ -44,76 +204,16 @@ def extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_
             break
 
         if frame_count % frame_interval == 0:
-            # Apply background subtraction
-            fgMask = backSub.apply(frame)
+            # Save the frame as an image
+            frame_filename = f"{frame_count}.jpg"
+            frame_path = os.path.join(output_img_dir, frame_filename)
+            cv2.imwrite(frame_path, frame)
+            saved_frame_count += 1
 
-            # Remove shadows (pixel value 127)
-            _, fgMask = cv2.threshold(fgMask, 250, 255, cv2.THRESH_BINARY)
-
-            # Find contours
-            contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            if contours:
-                # Assume the largest contour is the object
-                largest_contour = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(largest_contour)
-
-                # Save the frame
-                frame_filename = f"frame_{frame_count:05d}.jpg"
-                frame_path = os.path.join(images_dir, frame_filename)
-                cv2.imwrite(frame_path, frame)
-                saved_frames.append(frame_filename)
-
-                # Generate YOLO format annotation
-                img_height, img_width, _ = frame.shape
-                x_center = (x + w / 2) / img_width
-                y_center = (y + h / 2) / img_height
-                width = w / img_width
-                height = h / img_height
-
-                label_filename = frame_filename.replace('.jpg', '.txt')
-                label_path = os.path.join(labels_dir, label_filename)
-
-                # Assuming class id is 0
-                with open(label_path, 'w') as f:
-                    f.write(f"0 {x_center} {y_center} {width} {height}\n")
-            else:
-                print(f"No object detected in frame {frame_count}")
         frame_count += 1
 
     vidcap.release()
-    print(f"Extracted and annotated {len(saved_frames)} frames.")
-
-    # Shuffle and split frames into train and val
-    random.shuffle(saved_frames)
-    split_index = int(len(saved_frames) * train_split)
-    train_frames = saved_frames[:split_index]
-    val_frames = saved_frames[split_index:]
-
-    # Move frames and labels to train and val directories
-    for frame_filename in train_frames:
-        # Move image
-        src = os.path.join(images_dir, frame_filename)
-        dst = os.path.join(images_dir, 'train', frame_filename)
-        shutil.move(src, dst)
-        # Move label
-        label_filename = frame_filename.replace('.jpg', '.txt')
-        src_label = os.path.join(labels_dir, label_filename)
-        dst_label = os.path.join(labels_dir, 'train', label_filename)
-        shutil.move(src_label, dst_label)
-
-    for frame_filename in val_frames:
-        # Move image
-        src = os.path.join(images_dir, frame_filename)
-        dst = os.path.join(images_dir, 'val', frame_filename)
-        shutil.move(src, dst)
-        # Move label
-        label_filename = frame_filename.replace('.jpg', '.txt')
-        src_label = os.path.join(labels_dir, label_filename)
-        dst_label = os.path.join(labels_dir, 'val', label_filename)
-        shutil.move(src_label, dst_label)
-
-    print(f"Organized frames into {len(train_frames)} training and {len(val_frames)} validation images.")
+    print(f"Extracted {saved_frame_count} frames from the video.")
 
 def visualize_annotations(image_dir, label_dir, output_dir):
     """
@@ -160,13 +260,28 @@ def visualize_annotations(image_dir, label_dir, output_dir):
         output_path = os.path.join(output_dir, image_file)
         cv2.imwrite(output_path, image)
 
-# Example usage
-# video_path = 'object_videos/IMG_2577.MOV'
-# output_dir = 'dataset'
-# extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8)
-# Example usage
-image_dir = 'dataset/images/train'  # or 'dataset/images/val'
-label_dir = 'dataset/labels/train'  # or 'dataset/labels/val'
-output_dir = 'visualizations/train'  # or 'visualizations/val'
 
-visualize_annotations(image_dir, label_dir, output_dir)
+if __name__ == "__main__":
+    # Example usage
+    video_path = 'object_videos/IMG_2577.MOV'
+    video_dir = 'object_videos'
+    img_dir = 'dataset/images'
+    ann_img_dir = 'dataset/ann_images'
+
+    user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
+    if user_input == 'y':
+        extract_video_frames(video_path, img_dir)
+    elif user_input == 'n':
+        print("Skipping extract video frames...")
+    else:
+        print("Invalid input. Please enter 'y' or 'n'.")
+        
+    annotation(img_dir, ann_img_dir)
+
+    # extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8)
+    # Example usage
+    image_dir = 'dataset/images/train'  # or 'dataset/images/val'
+    label_dir = 'dataset/labels/train'  # or 'dataset/labels/val'
+    output_dir = 'visualizations/train'  # or 'visualizations/val'
+
+    # visualize_annotations(image_dir, label_dir, output_dir)
