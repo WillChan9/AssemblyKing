@@ -5,7 +5,7 @@ from flask import Flask, Response
 from ultralytics import YOLO
 
 app = Flask(__name__)
-model = YOLO('yolov8n.pt')
+model = YOLO('best.pt')
 
 def gen_frames():
     with mss.mss() as sct:
@@ -15,7 +15,7 @@ def gen_frames():
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
             # Apply object detection on the frame
-            results = model.predict(img, verbose = False)
+            results = model.predict(img, conf=0.8, verbose = False)
 
             # Get the annotated frame from the results
             annotated_frame = results[0].plot()

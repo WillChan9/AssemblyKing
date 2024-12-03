@@ -193,7 +193,7 @@ def visualize_annotations(image_dir, label_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
 
-    for image_file in image_files[:10]:
+    for image_file in image_files:
         image_path = os.path.join(image_dir, image_file)
         label_file = image_file.replace('.jpg', '.txt')
         label_path = os.path.join(label_dir, label_file)
@@ -241,6 +241,14 @@ if __name__ == "__main__":
     label_dir = 'dataset/labels'
     visual_dir = 'visualizations'
 
+    user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
+    if user_input == 'y':
+        extract_video_frames(video_path, img_dir)
+    elif user_input == 'n':
+        print("Skipping extract video frames...")
+    else:
+        print("Invalid input. Please enter 'y' or 'n'.")
+        
     user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
     if user_input == 'y':
         extract_video_frames(video_path, img_dir)

@@ -64,10 +64,10 @@ model = YOLO('yolov8n.pt')  # Using the smallest model for speed
 # Training parameters for quick test
 model.train(
     data='data.yaml',     # Path to the data configuration file
-    epochs=1,             # Number of training epochs
-    imgsz=128,            # Smaller image size for faster training
-    batch=1,              # Smaller batch size due to limited data
-    name='quick_test',    # Name of the training run
+    epochs=20,             # Number of training epochs
+    imgsz=640,            # Smaller image size for faster training
+    batch=16,              # Smaller batch size due to limited data
+    name='test1',    # Name of the training run
     verbose=False         # Reduce verbosity for quick test
 )
 
