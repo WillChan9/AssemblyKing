@@ -36,55 +36,35 @@ def show_box(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-def save_label_img(img, mask):
+def save_labels(mask, idx, class_id):
     #Generate the bounding box from the mask
-    ys, xs = np.where(mask)
-    img_width, img_height = img.size
-    if ys.size > 0 and xs.size > 0:
-        x_min = xs.min()
-        x_max = xs.max()
-        y_min = ys.min()
-        y_max = ys.max()
-        bounding_box = [x_min, y_min, x_max, y_max]
-        bounding_boxes[f"frame_{idx}"] = bounding_box
+    img_height, img_width = mask.shape[-2:]
+    mask_image = mask.reshape(img_height, img_width, 1)
+    # Step 2: Find indices where mask is True
+    mask_indices = np.argwhere(mask_image)
+
+    if mask_indices.size > 0:
+        # Step 3: Compute min and max indices
+        min_h = mask_indices[:, 0].min()
+        max_h = mask_indices[:, 0].max()
+        min_w = mask_indices[:, 1].min()
+        max_w = mask_indices[:, 1].max()
         
         # Normalize bounding box coordinates for YOLO format
-        x_center = (x_min + x_max) / 2.0 / img_width
-        y_center = (y_min + y_max) / 2.0 / img_height
-        width = (x_max - x_min) / img_width
-        height = (y_max - y_min) / img_height
-        
-        # Class id for YOLO (assuming 0)
-        class_id = 0
-        yolo_bbox = [class_id, x_center, y_center, width, height]
-        
-        # Save the image
-        image_filename = os.path.join(output_dir, f"frame_{idx}.jpg")
-        img.save(image_filename)
+        x_center = (min_w + max_w) / 2.0 / img_width
+        y_center = (min_h + max_h) / 2.0 / img_height
+        width = (max_w - min_w) / img_width
+        height = (max_h - min_h) / img_height
         
         # Save the label file
-        label_filename = os.path.join(output_dir, f"frame_{idx}.txt")
-        with open(label_filename, 'w') as f:
+        with open(label_dir+f"/{idx}.txt", 'w') as f:
             f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
-        
-        # Optionally, display the image with bounding box drawn
-        plt.figure(figsize=(9,6))
-        plt.title(f"Frame {idx} with Bounding Box")
-        plt.imshow(img)
-        ax = plt.gca()
-        rect = plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
-                                edgecolor='red', facecolor='none', linewidth=2)
-        ax.add_patch(rect)
-        plt.show()
         
     else:
         print(f"No mask detected for Frame {idx}.")
-        bounding_boxes[f"frame_{idx}"] = None  # No mask detected
         
-    # Output images and bounding box positions
-    return bounding_boxes
 
-def annotation(frames_dir, output_dir):
+def annotation(frames_dir, output_dir, class_id):
     """
     Annotate the first two frames in a directory of images and generate bounding boxes.
 
@@ -109,7 +89,6 @@ def annotation(frames_dir, output_dir):
     num_frames = min(2, len(frame_names))
     frames_to_process = frame_names[:num_frames]
     
-    bounding_boxes = {}  # To store bounding boxes for each frame
     inference_state = predictor.init_state(frames_dir)
     for idx, frame_name in enumerate(frames_to_process):
 
@@ -119,7 +98,7 @@ def annotation(frames_dir, output_dir):
         plt.figure(figsize=(9, 6))
         plt.title(f"Frame {frame_name}")
         plt.imshow(img)
-        print(f"Please click on the object in Frame {frame_name}. Close the window when done.")
+        print(f"Please click two points on the object in Frame {frame_name}.")
         # Collect user clicks
         points = plt.ginput(n=2, timeout=0)
         plt.close()
@@ -151,23 +130,24 @@ def annotation(frames_dir, output_dir):
         # show_mask(mask, plt.gca(), obj_id=out_obj_ids[0])
 
         # run propagation throughout the video and collect the results in a dict
-        video_segments = {}  # video_segments contains the per-frame segmentation results
-        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-            video_segments[out_frame_idx] = {
-                out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                for i, out_obj_id in enumerate(out_obj_ids)
-            }
+    video_segments = {}  # video_segments contains the per-frame segmentation results
+    for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+        video_segments[out_frame_idx] = {
+            out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+            for i, out_obj_id in enumerate(out_obj_ids)
+        }
 
-        # render the segmentation results every few frames
-        vis_frame_stride = 10
-        plt.close("all")
-        for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
-            plt.figure(figsize=(6, 4))
-            plt.title(f"frame {out_frame_idx}")
-            plt.imshow(Image.open(os.path.join(frames_dir, frame_names[out_frame_idx])))
-            for out_obj_id, out_mask in video_segments[out_frame_idx].items():
-                show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
-                plt.savefig(ann_img_dir+f'{out_frame_idx}.jpg')
+    # render the segmentation results every few frames
+    vis_frame_stride = 1
+    plt.close("all")
+    for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
+        plt.figure(figsize=(6, 4))
+        plt.title(f"frame {out_frame_idx}")
+        plt.imshow(Image.open(os.path.join(frames_dir, frame_names[out_frame_idx])))
+        for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+            show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
+            plt.savefig(ann_img_dir+f'/{out_frame_idx}.jpg')
+        save_labels(out_mask, out_frame_idx, class_id)
         
 
 def extract_video_frames(video_path, output_img_dir, frame_interval=1):
@@ -213,7 +193,7 @@ def visualize_annotations(image_dir, label_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
 
-    for image_file in image_files:
+    for image_file in image_files[:10]:
         image_path = os.path.join(image_dir, image_file)
         label_file = image_file.replace('.jpg', '.txt')
         label_path = os.path.join(label_dir, label_file)
@@ -257,7 +237,9 @@ if __name__ == "__main__":
     video_path = 'object_videos/IMG_2577.MOV'
     video_dir = 'object_videos'
     img_dir = 'dataset/images'
-    ann_img_dir = 'dataset/ann_images'
+    ann_img_dir = 'dataset/mask_images'
+    label_dir = 'dataset/labels'
+    visual_dir = 'visualizations'
 
     user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
     if user_input == 'y':
@@ -267,12 +249,10 @@ if __name__ == "__main__":
     else:
         print("Invalid input. Please enter 'y' or 'n'.")
         
-    annotation(img_dir, ann_img_dir)
+    annotation(img_dir, ann_img_dir, 1)
+    visualize_annotations(img_dir, label_dir, visual_dir)
 
     # extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8)
     # Example usage
-    image_dir = 'dataset/images/train'  # or 'dataset/images/val'
-    label_dir = 'dataset/labels/train'  # or 'dataset/labels/val'
-    output_dir = 'visualizations/train'  # or 'visualizations/val'
 
     # visualize_annotations(image_dir, label_dir, output_dir)
