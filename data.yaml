@@ -1,0 +1,5 @@
+train: /Users/rongqianchen/VScode Projects/AssemblyKing/AssemblyKing_project/dataset/images/train
+val: /Users/rongqianchen/VScode Projects/AssemblyKing/AssemblyKing_project/dataset/images/val
+
+nc: 1
+names: ['Part1']

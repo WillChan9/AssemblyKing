@@ -9,7 +9,7 @@ model = YOLO('yolov8n.pt')
 
 def gen_frames():
     with mss.mss() as sct:
-        monitor = sct.monitors[2]  # Change index if you have multiple monitors
+        monitor = sct.monitors[1]  # Change index if you have multiple monitors
         while True:
             img = np.array(sct.grab(monitor))
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)

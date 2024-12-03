@@ -249,7 +249,7 @@ if __name__ == "__main__":
     else:
         print("Invalid input. Please enter 'y' or 'n'.")
         
-    annotation(img_dir, ann_img_dir, 1)
+    annotation(img_dir, ann_img_dir, 0) # class_id start from 0
     visualize_annotations(img_dir, label_dir, visual_dir)
 
     # extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8)
