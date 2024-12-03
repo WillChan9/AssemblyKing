@@ -7,8 +7,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from sam2.build_sam import build_sam2_video_predictor
-import matplotlib
-matplotlib.use('TkAgg')  # Ensure GUI backend
 
 sam2_checkpoint = "../../sam2/sam2.1_hiera_small.pt"
 model_cfg = "../../sam2/sam2.1_hiera_s.yaml"
@@ -38,103 +36,10 @@ def show_box(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-def annotation(frames_dir, output_dir):
-    """
-    Annotate the first two frames in a directory of images and generate bounding boxes.
-
-    Parameters:
-    - frames_dir: Directory containing image frames named from '1.jpg' to 'n.jpg'.
-    - output_dir: Directory where the annotated images and labels will be saved.
-    """
-
-    # Ensure output directory exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    # Scan all JPEG frame names in the directory
-    frame_names = [
-        p for p in os.listdir(frames_dir)
-        if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
-    ]
-    # Sort frame names based on their numerical value
-    frame_names.sort(key=lambda x: int(os.path.splitext(x)[0]))
-
-    # Only process the first two frames
-    num_frames = min(2, len(frame_names))
-    frames_to_process = frame_names[:num_frames]
-    
-    bounding_boxes = {}  # To store bounding boxes for each frame
-    inference_state = predictor.init_state(frames_dir)
-    for idx, frame_name in enumerate(frames_to_process):
-
-        frame_path = os.path.join(frames_dir, frame_name)
-        img = cv2.imread(frame_path)
-        img_height, img_width = img.shape[:2]
-        clone = img.copy()
-        points = []
-
-        def click_event(event, x, y, flags, param):
-            if event == cv2.EVENT_LBUTTONDOWN:
-                points.append((x, y))
-                cv2.circle(img, (x, y), 5, (0, 255, 0), -1)
-                cv2.imshow("Image", img)
-
-        cv2.namedWindow("Image")
-        cv2.setMouseCallback("Image", click_event)
-        cv2.imshow("Image", img)
-        print(f"Please click on the object in Frame {frame_name}. Press 'q' when done.")
-        while True:
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-        cv2.destroyAllWindows()
-
-        if len(points) == 0:
-            print(f"No points were clicked for Frame {frame_name}. Skipping.")
-            continue
-
-        frame_path = os.path.join(frames_dir, frame_name)
-        img = Image.open(frame_path)
-        img_width, img_height = img.size
-
-        # Show the frame and ask user to click points
-        plt.figure(figsize=(9, 6))
-        plt.title(f"Frame {frame_name}")
-        plt.imshow(img)
-        print(f"Please click on the object in Frame {frame_name}. Close the window when done.")
-        # Collect user clicks
-        points = plt.ginput(n=1, timeout=0)
-        plt.close()
-        
-        if len(points) == 0:
-            print(f"No points were clicked for Frame {idx}. Skipping.")
-            continue
-        
-        # Convert points to numpy array
-        points = np.array(points, dtype=np.float32)
-        labels = np.ones(len(points), dtype=np.int32)
-        
-        # Process the image with predictor
-        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-            inference_state=inference_state,
-            frame_idx=idx,
-            obj_id=1,
-            points=points,
-            labels=labels,
-        )
-        
-        # Extract the mask
-        mask = (out_mask_logits[0] > 0.0).cpu().numpy()
-                # show the results on the current (interacted) frame
-        plt.figure(figsize=(9, 6))
-        plt.title(f"frame {idx}")
-        plt.imshow(img)
-        show_points(points, labels, plt.gca())
-        show_mask(mask, plt.gca(), obj_id=out_obj_ids[0])
-        
-    
-    # Generate the bounding box from the mask
+def save_label_img(img, mask):
+    #Generate the bounding box from the mask
     ys, xs = np.where(mask)
+    img_width, img_height = img.size
     if ys.size > 0 and xs.size > 0:
         x_min = xs.min()
         x_max = xs.max()
@@ -178,6 +83,92 @@ def annotation(frames_dir, output_dir):
         
     # Output images and bounding box positions
     return bounding_boxes
+
+def annotation(frames_dir, output_dir):
+    """
+    Annotate the first two frames in a directory of images and generate bounding boxes.
+
+    Parameters:
+    - frames_dir: Directory containing image frames named from '1.jpg' to 'n.jpg'.
+    - output_dir: Directory where the annotated images and labels will be saved.
+    """
+
+    # Ensure output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Scan all JPEG frame names in the directory
+    frame_names = [
+        p for p in os.listdir(frames_dir)
+        if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
+    ]
+    # Sort frame names based on their numerical value
+    frame_names.sort(key=lambda x: int(os.path.splitext(x)[0]))
+
+    # Only process the first two frames
+    num_frames = min(2, len(frame_names))
+    frames_to_process = frame_names[:num_frames]
+    
+    bounding_boxes = {}  # To store bounding boxes for each frame
+    inference_state = predictor.init_state(frames_dir)
+    for idx, frame_name in enumerate(frames_to_process):
+
+        frame_path = os.path.join(frames_dir, frame_name)
+        img = Image.open(frame_path)
+        # Show the frame and ask user to click points
+        plt.figure(figsize=(9, 6))
+        plt.title(f"Frame {frame_name}")
+        plt.imshow(img)
+        print(f"Please click on the object in Frame {frame_name}. Close the window when done.")
+        # Collect user clicks
+        points = plt.ginput(n=2, timeout=0)
+        plt.close()
+        
+        if len(points) == 0:
+            print(f"No points were clicked for Frame {idx}. Skipping.")
+            continue
+        
+        # Convert points to numpy array
+        points = np.array(points, dtype=np.float32)
+        labels = np.ones(len(points), dtype=np.int32)
+        
+        # Process the image with predictor
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=idx,
+            obj_id=1,
+            points=points,
+            labels=labels,
+        )
+        
+        # # Extract the mask
+        # mask = (out_mask_logits[0] > 0.0).cpu().numpy()
+        #         # show the results on the current (interacted) frame
+        # plt.figure(figsize=(9, 6))
+        # plt.title(f"frame {idx}")
+        # plt.imshow(img)
+        # show_points(points, labels, plt.gca())
+        # show_mask(mask, plt.gca(), obj_id=out_obj_ids[0])
+
+        # run propagation throughout the video and collect the results in a dict
+        video_segments = {}  # video_segments contains the per-frame segmentation results
+        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+            video_segments[out_frame_idx] = {
+                out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                for i, out_obj_id in enumerate(out_obj_ids)
+            }
+
+        # render the segmentation results every few frames
+        vis_frame_stride = 10
+        plt.close("all")
+        for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
+            plt.figure(figsize=(6, 4))
+            plt.title(f"frame {out_frame_idx}")
+            plt.imshow(Image.open(os.path.join(frames_dir, frame_names[out_frame_idx])))
+            for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+                show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
+                plt.savefig(ann_img_dir+f'{out_frame_idx}.jpg')
+        
 
 def extract_video_frames(video_path, output_img_dir, frame_interval=1):
     """
