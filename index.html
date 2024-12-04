@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-Time Screen Streaming</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #video-container {
+            text-align: center;
+        }
+        #instructions {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Screen Streaming</h1>
+    <div id="video-container">
+        <img src="{{ url_for('video_feed') }}" width="80%">
+    </div>
+    <div id="instructions">
+        <h2>Instructions:</h2>
+        <pre id="instructions-text">No instructions yet.</pre>
+    </div>
+    <script>
+        function fetchInstructions() {
+            fetch('/get_instructions')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('instructions-text').innerText = data.instructions || 'No instructions yet.';
+                })
+                .catch(error => {
+                    console.error('Error fetching instructions:', error);
+                });
+        }
+        // Fetch instructions every 5 seconds
+        setInterval(fetchInstructions, 5000);
+        // Fetch immediately on page load
+        fetchInstructions();
+    </script>
+</body>
+</html>
