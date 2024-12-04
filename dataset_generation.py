@@ -1,16 +1,26 @@
 import cv2
 import os
-import random
-import shutil
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from sam2.build_sam import build_sam2_video_predictor
 
-sam2_checkpoint = "../../sam2/sam2.1_hiera_small.pt"
-model_cfg = "../../sam2/sam2.1_hiera_s.yaml"
-predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=torch.device("cpu"))
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+print(f"using device: {device}")
+
+# Mac file path
+# sam2_checkpoint = "../../sam2/sam2.1_hiera_small.pt"
+# model_cfg = "../../sam2/sam2.1_hiera_s.yaml"
+
+# Windows file path
+sam2_checkpoint = "s:/AssemblyKing_project/AssemblyKing_python/sam2/sam2.1_hiera_small.pt"
+model_cfg = "s:/AssemblyKing_project/AssemblyKing_python/sam2/sam2.1_hiera_s.yaml"
+
+predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=device)
 
 def show_mask(mask, ax, obj_id=None, random_color=False):
     if random_color:
@@ -57,12 +67,22 @@ def save_labels(mask, idx, class_id):
         height = (max_h - min_h) / img_height
         
         # Save the label file
-        with open(label_dir+f"/{idx}.txt", 'w') as f:
+        with open(label_dir+f"/{object_name}_{idx}.txt", 'w') as f:
             f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
         
     else:
         print(f"No mask detected for Frame {idx}.")
         
+def sort_by_frame_idx(frame_names, target_object_name):
+    def extract_frame_idx(filename):
+        name, _ = os.path.splitext(filename)
+        parts = name.split('_')
+        if len(parts) == 2 and parts[0] == target_object_name:
+            return int(parts[1])  # Extract `out_frame_idx`
+        return float('inf')  # Push other objects' frames to the end
+
+    frame_names.sort(key=extract_frame_idx)
+    return frame_names
 
 def annotation(frames_dir, output_dir, class_id):
     """
@@ -83,8 +103,7 @@ def annotation(frames_dir, output_dir, class_id):
         if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
     ]
     # Sort frame names based on their numerical value
-    frame_names.sort(key=lambda x: int(os.path.splitext(x)[0]))
-
+    frame_names.sort(key=lambda x: int(os.path.splitext(x)[0].split('_')[-1]))
     # Only process the first two frames
     num_frames = min(2, len(frame_names))
     frames_to_process = frame_names[:num_frames]
@@ -146,8 +165,9 @@ def annotation(frames_dir, output_dir, class_id):
         plt.imshow(Image.open(os.path.join(frames_dir, frame_names[out_frame_idx])))
         for out_obj_id, out_mask in video_segments[out_frame_idx].items():
             show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
-            plt.savefig(ann_img_dir+f'/{out_frame_idx}.jpg')
+            plt.savefig(ann_img_dir+f'/{object_name}_{out_frame_idx}.jpg') # save the masked images
         save_labels(out_mask, out_frame_idx, class_id)
+        plt.close()
         
 
 def extract_video_frames(video_path, output_img_dir, frame_interval=1):
@@ -176,7 +196,7 @@ def extract_video_frames(video_path, output_img_dir, frame_interval=1):
 
         if frame_count % frame_interval == 0:
             # Save the frame as an image
-            frame_filename = f"{frame_count}.jpg"
+            frame_filename = f"{object_name}_{frame_count}.jpg"
             frame_path = os.path.join(output_img_dir, frame_filename)
             cv2.imwrite(frame_path, frame)
             saved_frame_count += 1
@@ -234,12 +254,15 @@ def visualize_annotations(image_dir, label_dir, output_dir):
 
 if __name__ == "__main__":
     # Example usage
-    video_path = 'object_videos/IMG_2577.MOV'
+    video_path = 'object_videos/push.mp4'
+    object_name = 'push'
+    object_class_id = 5
     video_dir = 'object_videos'
     img_dir = 'dataset/images'
     ann_img_dir = 'dataset/mask_images'
     label_dir = 'dataset/labels'
     visual_dir = 'visualizations'
+    
 
     user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
     if user_input == 'y':
@@ -249,18 +272,18 @@ if __name__ == "__main__":
     else:
         print("Invalid input. Please enter 'y' or 'n'.")
         
-    user_input = input("Do you want to run extract_video_frames? (y/n): ").strip().lower()
+    user_input = input("Do you want to run image annotation? (y/n): ").strip().lower()
     if user_input == 'y':
-        extract_video_frames(video_path, img_dir)
+        annotation(img_dir, ann_img_dir, object_class_id) # class_id start from 0
     elif user_input == 'n':
-        print("Skipping extract video frames...")
+        print("Skipping image annotations...")
     else:
         print("Invalid input. Please enter 'y' or 'n'.")
         
-    annotation(img_dir, ann_img_dir, 0) # class_id start from 0
-    visualize_annotations(img_dir, label_dir, visual_dir)
-
-    # extract_and_annotate_frames(video_path, output_dir, frame_interval=1, train_split=0.8)
-    # Example usage
-
-    # visualize_annotations(image_dir, label_dir, output_dir)
+    user_input = input("Do you want to run annotation visualization? (y/n): ").strip().lower()
+    if user_input == 'y':
+        visualize_annotations(img_dir, label_dir, visual_dir)
+    elif user_input == 'n':
+        print("Skipping annotations visualization...")
+    else:
+        print("Invalid input. Please enter 'y' or 'n'.")

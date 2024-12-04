@@ -15,7 +15,7 @@ def gen_frames():
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
             # Apply object detection on the frame
-            results = model.predict(img, conf=0.8, verbose = False)
+            results = model.predict(img, verbose = False)
 
             # Get the annotated frame from the results
             annotated_frame = results[0].plot()

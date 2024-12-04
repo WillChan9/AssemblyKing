@@ -1,5 +1,5 @@
-train: /Users/rongqianchen/VScode Projects/AssemblyKing/AssemblyKing_project/dataset/images/train
-val: /Users/rongqianchen/VScode Projects/AssemblyKing/AssemblyKing_project/dataset/images/val
+train: s:/AssemblyKing_project/AssemblyKing_python/AssemblyKing/dataset/images/train
+val: s:/AssemblyKing_project/AssemblyKing_python/AssemblyKing/dataset/images/val
 
-nc: 1
-names: ['Part1']
+nc: 6
+names: ['bottom plate', 'spring', 'trigger', 'dice wheel', 'top lid', 'push button']

@@ -11,7 +11,7 @@ label_dir = os.path.join(dataset_dir, 'labels')
 
 # Create lists of image and label files
 image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
-image_files.sort(key=lambda x: int(os.path.splitext(x)[0]))  # Ensure proper ordering
+image_files.sort(key=lambda x: int(os.path.splitext(x)[0].split('_')[-1]))  # Ensure proper ordering
 
 # Shuffle the dataset
 random.seed(42)  # For reproducibility
@@ -36,41 +36,44 @@ def copy_files(file_list, src_image_dir, src_label_dir, dest_image_dir, dest_lab
         dest_label_path = os.path.join(dest_label_dir, label_name)
         shutil.copy(src_label_path, dest_label_path)
 
-# Define destination directories for training and validation sets
-train_image_dir = os.path.join(dataset_dir, 'images/train')
-train_label_dir = os.path.join(dataset_dir, 'labels/train')
-val_image_dir = os.path.join(dataset_dir, 'images/val')
-val_label_dir = os.path.join(dataset_dir, 'labels/val')
+if __name__ == '__main__':
+    # Define destination directories for training and validation sets
+    train_image_dir = os.path.join(dataset_dir, 'images/train')
+    train_label_dir = os.path.join(dataset_dir, 'labels/train')
+    val_image_dir = os.path.join(dataset_dir, 'images/val')
+    val_label_dir = os.path.join(dataset_dir, 'labels/val')
 
-# Copy files to the respective directories
-copy_files(train_files, image_dir, label_dir, train_image_dir, train_label_dir)
-copy_files(val_files, image_dir, label_dir, val_image_dir, val_label_dir)
+    # Copy files to the respective directories
+    copy_files(train_files, image_dir, label_dir, train_image_dir, train_label_dir)
+    copy_files(val_files, image_dir, label_dir, val_image_dir, val_label_dir)
 
-# Create the data.yaml file for YOLO configuration
-data_yaml_content = f"""
-train: {os.path.abspath(train_image_dir)}
-val: {os.path.abspath(val_image_dir)}
+    # Create the data.yaml file for YOLO configuration
+    data_yaml_content = f"""
+    train: {os.path.abspath(train_image_dir).replace('\\', '/')}
+val: {os.path.abspath(val_image_dir).replace('\\', '/')}
 
-nc: 1
-names: ['Part1']
+nc: 6
+names: ['bottom plate', 'spring', 'trigger', 'dice wheel', 'top lid', 'push button']
 """
 
-with open('data.yaml', 'w') as f:
-    f.write(data_yaml_content.strip())
+    with open('data.yaml', 'w') as f:
+        f.write(data_yaml_content.strip())
 
-# Initialize the YOLO model
-model = YOLO('yolov8n.pt')  # Using the smallest model for speed
+    # Initialize the YOLO model
+    model = YOLO('yolov8s.pt')  # Using the smallest model for speed
 
-# Training parameters for quick test
-model.train(
-    data='data.yaml',     # Path to the data configuration file
-    epochs=20,             # Number of training epochs
-    imgsz=640,            # Smaller image size for faster training
-    batch=16,              # Smaller batch size due to limited data
-    name='test1',    # Name of the training run
-    verbose=False         # Reduce verbosity for quick test
-)
+    # Training parameters for quick test
+    model.train(
+        data='data.yaml',     # Path to the data configuration file
+        epochs=100,            # Number of training epochs
+        imgsz=640,            # Smaller image size for faster training
+        batch=32,             # Smaller batch size due to limited data
+        name='assemblyKing',         # Name of the training run
+        augment=True,
+        patience=10,        # Stop if no improvement after 10 epochs
+    )
 
-# Optionally, evaluate the model
-metrics = model.val()
-print(metrics)
+    # Optionally, evaluate the model
+    metrics = model.val(save_json=True, plots=True)
+    # metrics = model.val()
+    # print(metrics)
